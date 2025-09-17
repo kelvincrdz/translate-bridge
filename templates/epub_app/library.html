@@ -1,0 +1,307 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Biblioteca - Tradutor EPUB{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-background">
+    <!-- Header -->
+    <header class="border-b bg-card px-6 py-4">
+            <div class="flex items-center justify-between gap-4">
+                <div class="flex items-center gap-3 min-w-0">
+                    <i data-lucide="book-open" class="icon-6 text-primary"></i>
+                    <div class="leading-tight">
+                        <h1 class="text-lg font-semibold tracking-tight">Minha Biblioteca</h1>
+                        <p class="text-xs text-muted-foreground" id="books-count">
+                        {% if books %}{{ books|length }}{% else %}0{% endif %} livro{% if books|length != 1 %}s{% endif %} disponíve{% if books|length != 1 %}is{% else %}l{% endif %}
+                    </p>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <div class="flex items-center gap-2 text-sm text-muted-foreground">
+                    <i data-lucide="user" class="icon-4"></i>
+                    <span class="truncate max-w-[10rem]">{{ user.get_full_name|default:user.username }}</span>
+                </div>
+                <button class="icon-btn" data-theme-toggle aria-label="Alternar tema">
+                    <i data-lucide="sun" class="icon-5 theme-icon-sun"></i>
+                    <i data-lucide="moon" class="icon-5 theme-icon-moon hidden"></i>
+                </button>
+                <a href="{% url 'logout' %}" class="btn btn-outline">
+                    <i data-lucide="log-out" class="icon-4 mr-2"></i>
+                    Sair
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Content -->
+    <main class="p-6 space-y-8">
+        <!-- Actions -->
+        <div class="flex justify-between items-center">
+            <h2 class="text-xl font-semibold tracking-tight">Seus Livros</h2>
+            {% if books %}
+                <button 
+                    class="btn btn-destructive btn-sm" 
+                    onclick="confirmDeleteAll()"
+                    id="delete-all-btn"
+                >
+                    <i data-lucide="trash-2" class="h-4 w-4 mr-2"></i>
+                    Apagar Todos
+                </button>
+            {% endif %}
+        </div>
+
+        <!-- Upload Area -->
+        <div class="mb-8">
+            <div class="card border-dashed border-2 border-muted-foreground/25 hover:border-muted-foreground/50 transition-colors">
+                <div class="card-content py-8">
+                    <div class="text-center">
+                        <i data-lucide="upload" class="h-12 w-12 mx-auto mb-4 text-muted-foreground"></i>
+                        <h3 class="text-lg font-medium mb-2">Adicionar novo livro</h3>
+                        <p class="text-muted-foreground mb-4">
+                            Arraste e solte arquivos EPUB aqui ou clique para selecionar
+                        </p>
+                        <div class="flex justify-center gap-2">
+                            <button class="btn btn-primary" onclick="triggerFileUpload()">
+                                <i data-lucide="plus" class="h-4 w-4 mr-2"></i>
+                                Escolher arquivos
+                            </button>
+                            <button class="btn btn-outline" onclick="showUrlUpload()">
+                                <i data-lucide="link" class="h-4 w-4 mr-2"></i>
+                                Importar via URL
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Hidden file input -->
+            <input type="file" id="file-upload" multiple accept=".epub" class="hidden">
+        </div>
+
+        <!-- Books Grid -->
+        {% if not books %}
+            <div class="card text-center py-12">
+                <div class="card-content">
+                    <i data-lucide="book-open" class="h-16 w-16 mx-auto mb-4 text-muted-foreground"></i>
+                    <h3 class="text-lg font-medium mb-2">Nenhum livro encontrado</h3>
+                    <p class="text-muted-foreground">
+                        Adicione alguns livros EPUB para começar a ler
+                    </p>
+                </div>
+            </div>
+        {% else %}
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6" id="books-grid">
+                {% for book in books %}
+                    <div class="card overflow-hidden group" data-book-id="{{ book.id }}" {% if book.uploaded_file_id %}data-uploaded-file-id="{{ book.uploaded_file_id }}"{% endif %}>
+                        <div class="aspect-[3/4] relative">
+                            <!-- Book Cover -->
+                            <img 
+                                src="{% if book.cover_image %}{{ book.cover_image }}{% else %}{% static 'images/book-placeholder.svg' %}{% endif %}" 
+                                alt="{{ book.title }}"
+                                class="w-full h-full object-cover"
+                            >
+                            
+                            <!-- Delete button -->
+                            <div class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button 
+                                    class="btn btn-destructive p-2 h-8 w-8"
+                                    onclick="confirmDeleteBook('{% if book.uploaded_file_id %}{{ book.uploaded_file_id }}{% else %}{{ book.id }}{% endif %}', '{{ book.title|escapejs }}')"
+                                    title="Remover livro"
+                                >
+                                    <i data-lucide="trash-2" class="h-4 w-4"></i>
+                                </button>
+                            </div>
+
+                            <!-- Status indicators -->
+                            <div class="absolute top-2 left-2 flex flex-col gap-1">
+                                {% if book.translation_available %}
+                                    <span class="badge badge-secondary text-xs bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900 dark:text-blue-100 dark:border-blue-800">
+                                        <i data-lucide="languages" class="h-3 w-3 mr-1"></i>
+                                        Tradução
+                                    </span>
+                                {% endif %}
+                                {% if book.progress > 0 %}
+                                    <span class="badge badge-secondary text-xs bg-green-100 text-green-800 border-green-200 dark:bg-green-900 dark:text-green-100 dark:border-green-800">
+                                        <i data-lucide="book-open-check" class="h-3 w-3 mr-1"></i>
+                                        {{ book.progress|floatformat:0 }}%
+                                    </span>
+                                {% endif %}
+                            </div>
+
+                            <!-- Translation progress -->
+                            {% if book.translation_available and book.translation_progress > 0 %}
+                                <div class="absolute bottom-2 left-2 right-2">
+                                    <div class="bg-black/50 rounded p-2 text-white text-xs">
+                                        <div class="flex items-center justify-between mb-1">
+                                            <span class="flex items-center gap-1">
+                                                <i data-lucide="languages" class="h-3 w-3"></i>
+                                                Tradução
+                                            </span>
+                                            <span>{{ book.translation_progress|floatformat:0 }}%</span>
+                                        </div>
+                                        <div class="w-full bg-white/20 rounded-full h-1">
+                                            <div 
+                                                class="bg-blue-400 h-1 rounded-full transition-all"
+                                                style="width: {{ book.translation_progress }}%"
+                                            ></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endif %}
+                        </div>
+                        
+                        <div class="card-header pb-2">
+                            <h3 class="card-title text-base line-clamp-2">{{ book.title }}</h3>
+                            <p class="text-sm text-muted-foreground">{{ book.author|default:"Autor desconhecido" }}</p>
+                        </div>
+                        
+                        <div class="card-content pt-0">
+                            <div class="flex gap-2">
+                                <a 
+                                    href="{% url 'reader' book.id %}" 
+                                    class="btn btn-primary flex-1"
+                                >
+                                    <i data-lucide="book-open" class="h-4 w-4 mr-2"></i>
+                                    Ler
+                                </a>
+                                <button 
+                                    class="btn btn-outline p-2"
+                                    onclick="showDownloadDialog('{{ book.id }}', '{{ book.title|escapejs }}')"
+                                    title="Download"
+                                >
+                                    <i data-lucide="download" class="h-4 w-4"></i>
+                                </button>
+                                {% if book.translation_available %}
+                                    <button 
+                                        class="btn btn-outline p-2"
+                                        onclick="showTranslationDialog('{{ book.id }}', '{{ book.title|escapejs }}')"
+                                        title="Traduzir"
+                                    >
+                                        <i data-lucide="languages" class="h-4 w-4"></i>
+                                    </button>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    </main>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div id="delete-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50" data-dialog>
+    <div class="bg-background rounded-lg max-w-md w-full mx-4 p-6" role="document">
+        <h3 class="text-lg font-semibold mb-2" id="delete-title" data-dialog-title>Confirmar remoção</h3>
+        <p class="text-muted-foreground mb-6" id="delete-message">
+            Tem certeza que deseja remover este item?
+        </p>
+        <div class="flex justify-end gap-2">
+            <button class="btn btn-outline" data-dialog-close="delete-modal">
+                Cancelar
+            </button>
+            <button class="btn btn-destructive" id="confirm-delete-btn" data-dialog-primary>
+                Remover
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Download Modal -->
+<div id="download-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50" data-dialog>
+    <div class="bg-background rounded-lg w-full max-w-lg mx-4 p-6" role="document">
+        <h3 class="text-lg font-semibold mb-4">Download</h3>
+        <div class="space-y-6">
+            <div>
+                <h4 class="text-sm font-medium mb-2">Formato</h4>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <button class="btn btn-outline w-full" data-download-type="original" onclick="downloadBook('original')">
+                        Original
+                    </button>
+                    <button class="btn btn-outline w-full" data-download-type="mixed" onclick="downloadBook('mixed')">
+                        Misto
+                    </button>
+                    <button class="btn btn-outline w-full" data-download-type="translation" onclick="handleTranslationDownload()">
+                        Tradução
+                    </button>
+                </div>
+            </div>
+            <div id="translations-section" class="hidden">
+                <h4 class="text-sm font-medium mb-2">Traduções disponíveis</h4>
+                <div id="translations-list" class="max-h-40 overflow-auto space-y-2 text-sm text-muted-foreground">
+                    <p id="no-translations" class="text-muted-foreground">Nenhuma tradução concluída ainda.</p>
+                </div>
+            </div>
+            <div id="translation-progress" class="hidden">
+                <h4 class="text-sm font-medium mb-2">Progresso de Tradução</h4>
+                <div class="w-full bg-secondary h-2 rounded overflow-hidden">
+                    <div id="translation-progress-bar" class="bg-primary h-2 w-0"></div>
+                </div>
+                <p id="translation-progress-text" class="mt-1 text-xs text-muted-foreground">0%</p>
+            </div>
+        </div>
+        <div class="flex justify-end gap-2 mt-6">
+            <button class="btn btn-outline" data-dialog-close="download-modal">Fechar</button>
+        </div>
+    </div>
+</div>
+
+<!-- Translation Modal -->
+<div id="translation-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50" data-dialog>
+    <div class="bg-background rounded-lg max-w-md w-full mx-4 p-6" role="document">
+        <h3 class="text-lg font-semibold mb-4">Traduzir Livro</h3>
+        <div class="space-y-4">
+            <div>
+                <label class="label mb-2">Idioma de destino:</label>
+                <select class="input w-full" id="translation-language">
+                    <option value="">Selecione um idioma</option>
+                    <option value="en">🇺🇸 Inglês</option>
+                    <option value="es">🇪🇸 Espanhol</option>
+                    <option value="fr">🇫🇷 Francês</option>
+                    <option value="de">🇩🇪 Alemão</option>
+                    <option value="it">🇮🇹 Italiano</option>
+                </select>
+            </div>
+        </div>
+        <div class="flex justify-end gap-2 mt-6">
+            <button class="btn btn-outline" data-dialog-close="translation-modal">
+                Cancelar
+            </button>
+            <button class="btn btn-primary" onclick="startTranslation()">
+                Iniciar Tradução
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- URL Upload Modal -->
+<div id="url-upload-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50" data-dialog>
+    <div class="bg-background rounded-lg max-w-md w-full mx-4 p-6" role="document">
+    <h3 class="text-lg font-semibold mb-4">Importar Obra do AO3</h3>
+        <div class="space-y-4">
+            <div>
+                <label class="label mb-2">URL da obra no AO3:</label>
+                <input type="url" class="input w-full" id="epub-url" placeholder="https://archiveofourown.org/works/12345678">
+                <p class="text-sm text-muted mt-2">Insira a URL completa de uma obra pública do Archive of Our Own. Será gerado um EPUB e adicionado à sua biblioteca.</p>
+            </div>
+            <div id="ao3-import-status" class="text-sm text-muted hidden"></div>
+        </div>
+        <div class="flex justify-end gap-2 mt-6">
+            <button class="btn btn-outline" data-dialog-close="url-upload-modal">
+                Cancelar
+            </button>
+            <button id="ao3-import-btn" class="btn btn-primary" onclick="importFromUrl()">
+                <span class="ao3-btn-text">Importar</span>
+                <span class="ao3-btn-spinner hidden animate-spin ml-2">⏳</span>
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<!-- Hidden CSRF token provider for AJAX requests -->
+<form id="__csrf_provider" style="display:none;">{% csrf_token %}</form>
+<script src="{% static 'js/library.js' %}"></script>
+{% endblock %}

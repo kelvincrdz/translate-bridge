@@ -1,0 +1,555 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ book.title }} - Tradutor EPUB{% endblock %}
+
+{% block content %}
+<div class="min-h-screen flex flex-col" id="reader-app">
+    <!-- Header -->
+    <header class="border-b bg-card px-6 py-4">
+        <div class="flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3 min-w-0">
+                <a href="{% url 'library' %}" class="icon-btn" title="Voltar à biblioteca">
+                    <i data-lucide="arrow-left" class="icon-5"></i>
+                </a>
+                <div class="leading-tight truncate">
+                    <h1 class="text-base font-semibold tracking-tight truncate max-w-[16rem]">{{ book.title }}</h1>
+                    <p class="text-xs text-muted-foreground truncate max-w-[16rem]">{{ book.author|default:"Autor desconhecido" }}</p>
+                </div>
+                <button class="icon-btn" data-theme-toggle aria-label="Alternar tema geral">
+                    <i data-lucide="sun" class="icon-5 theme-icon-sun"></i>
+                    <i data-lucide="moon" class="icon-5 theme-icon-moon hidden"></i>
+                </button>
+            </div>
+
+            <!-- Chapter Navigation -->
+            <div class="flex items-center gap-2 flex-shrink-0">
+                <span class="text-sm text-muted-foreground">Capítulo:</span>
+                <select 
+                    class="input text-sm w-auto min-w-0" 
+                    id="chapter-select"
+                    onchange="navigateToChapter(this.value)"
+                >
+                    {% for chapter in book.chapters %}
+                        <option value="{{ forloop.counter0 }}" {% if forloop.counter0 == current_chapter %}selected{% endif %}>
+                            {{ forloop.counter }} - {{ chapter.title|truncatechars:30 }}
+                        </option>
+                    {% endfor %}
+                </select>
+                <span class="text-sm text-muted-foreground">
+                    de {{ book.chapters|length }}
+                </span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Reading Area -->
+    <div class="flex-1 flex flex-col relative">
+        <!-- Reader Content -->
+        <div class="flex-1 overflow-auto custom-scrollbar" id="reader-content-area">
+            <div 
+                class="reader-content-wrapper transition-colors duration-200" 
+                id="reader-wrapper"
+                data-theme="light"
+            >
+                <div class="reader-container max-w-4xl mx-auto px-8 py-12">
+                    <article class="reader-content prose prose-lg max-w-none" id="reader-content">
+                        <header class="mb-8">
+                            <h1 class="mb-2">{{ current_chapter_data.title }}</h1>
+                            <div class="text-sm text-muted-foreground">
+                                Capítulo {{ current_chapter|add:1 }} de {{ book.chapters|length }}
+                            </div>
+                        </header>
+                        
+                        <div class="chapter-content prose prose-lg max-w-none leading-relaxed">
+                            {{ current_chapter_data.content|safe }}
+                        </div>
+                    </article>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Progress Bar -->
+        <div class="progress-container bg-background border-t py-2 px-6">
+            <div class="flex items-center gap-4">
+                <span class="text-sm text-muted-foreground whitespace-nowrap">Progresso:</span>
+                <div class="progress flex-1">
+                    <div 
+                        class="progress-indicator bg-primary" 
+                        id="reading-progress"
+                        style="width: {{ book.progress|default:0 }}%"
+                    ></div>
+                </div>
+                <span class="text-sm text-muted-foreground whitespace-nowrap" id="progress-text">
+                    {{ book.progress|default:0|floatformat:0 }}%
+                </span>
+            </div>
+        </div>
+        
+        <!-- Reader Controls -->
+        <div class="reader-controls bg-card/95 backdrop-blur border-t px-6 py-4">
+            <div class="flex items-center justify-between gap-4">
+                <!-- Navigation Controls -->
+                <div class="flex items-center gap-2 flex-wrap">
+                    <button 
+                        class="btn btn-outline"
+                        onclick="previousChapter()"
+                        {% if current_chapter == 0 %}disabled{% endif %}
+                        title="Capítulo anterior"
+                    >
+                        <i data-lucide="chevron-left" class="h-4 w-4 mr-1"></i>
+                        Anterior
+                    </button>
+                    <button 
+                        class="btn btn-outline"
+                        onclick="nextChapter()"
+                        {% if current_chapter >= book.chapters|length|add:"-1" %}disabled{% endif %}
+                        title="Próximo capítulo"
+                    >
+                        Próximo
+                        <i data-lucide="chevron-right" class="h-4 w-4 ml-1"></i>
+                    </button>
+                </div>
+
+                <!-- Reader Settings -->
+                <div class="flex items-center gap-2">
+                    <!-- Font Size Controls -->
+                    <div class="flex items-center gap-1 border rounded-md">
+                        <button 
+                            class="btn btn-ghost btn-sm p-2"
+                            data-reader-action="fontSize-decrease"
+                            title="Diminuir fonte"
+                        >
+                            <i data-lucide="minus" class="h-3 w-3"></i>
+                        </button>
+                        <span class="text-sm px-2 border-x" data-font-size-display>16px</span>
+                        <button 
+                            class="btn btn-ghost btn-sm p-2"
+                            data-reader-action="fontSize-increase"
+                            title="Aumentar fonte"
+                        >
+                            <i data-lucide="plus" class="h-3 w-3"></i>
+                        </button>
+                    </div>
+
+                    <!-- Theme Toggle -->
+                    <button class="btn btn-outline btn-sm" onclick="toggleReaderTheme()" id="reader-theme-btn" title="Alternar tema do leitor">
+                        <i data-lucide="sun" class="icon-4"></i>
+                    </button>
+
+                    <!-- Translation Controls -->
+                    {% if book.translation_available %}
+                        <button 
+                            class="btn btn-outline btn-sm"
+                            onclick="showTranslationOptions()"
+                            title="Opções de tradução"
+                        >
+                            <i data-lucide="languages" class="h-4 w-4"></i>
+                        </button>
+                    {% endif %}
+
+                    <!-- Settings Menu -->
+                    <button 
+                        class="btn btn-outline btn-sm"
+                        onclick="toggleSettingsPanel()"
+                        title="Configurações de leitura"
+                    >
+                        <i data-lucide="settings" class="h-4 w-4"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Panel -->
+    <div 
+        class="fixed right-0 top-0 h-full w-80 bg-background border-l transform translate-x-full transition-transform duration-300 z-40" 
+        id="settings-panel"
+    >
+        <div class="p-6">
+            <div class="flex items-center justify-between mb-6">
+                <h3 class="text-lg font-medium">Configurações de Leitura</h3>
+                <button 
+                    class="btn btn-ghost p-2"
+                    onclick="toggleSettingsPanel()"
+                >
+                    <i data-lucide="x" class="h-4 w-4"></i>
+                </button>
+            </div>
+            
+            <div class="space-y-6">
+                <!-- Font Family -->
+                <div>
+                    <label class="label mb-2">Fonte</label>
+                    <select class="input w-full" data-reader-preference="fontFamily">
+                        <option value="system-ui">Sistema</option>
+                        <option value="serif">Serif</option>
+                        <option value="sans-serif">Sans Serif</option>
+                        <option value="monospace">Monospace</option>
+                    </select>
+                </div>
+
+                <!-- Font Size -->
+                <div>
+                    <label class="label mb-2">Tamanho da Fonte</label>
+                    <input 
+                        type="range" 
+                        min="12" 
+                        max="24" 
+                        step="2" 
+                        value="16"
+                        class="w-full"
+                        data-reader-preference="fontSize"
+                    >
+                </div>
+
+                <!-- Line Height -->
+                <div>
+                    <label class="label mb-2">Espaçamento</label>
+                    <input 
+                        type="range" 
+                        min="1.2" 
+                        max="2.0" 
+                        step="0.1" 
+                        value="1.6"
+                        class="w-full"
+                        data-reader-preference="lineHeight"
+                    >
+                </div>
+
+                <!-- Page Width -->
+                <div>
+                    <label class="label mb-2">Largura da Página</label>
+                    <select class="input w-full" data-reader-preference="pageWidth">
+                        <option value="narrow">Estreita</option>
+                        <option value="medium">Média</option>
+                        <option value="wide">Larga</option>
+                    </select>
+                </div>
+
+                <!-- Text Alignment -->
+                <div>
+                    <label class="label mb-2">Alinhamento</label>
+                    <select class="input w-full" data-reader-preference="textAlign">
+                        <option value="left">Esquerda</option>
+                        <option value="justify">Justificado</option>
+                        <option value="center">Centro</option>
+                    </select>
+                </div>
+
+                <!-- Reset Button -->
+                <button 
+                    class="btn btn-outline w-full"
+                    onclick="resetReaderSettings()"
+                >
+                    Restaurar Padrões
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Panel Backdrop -->
+    <div 
+        class="fixed inset-0 bg-black bg-opacity-50 hidden z-30" 
+        id="settings-backdrop"
+        onclick="toggleSettingsPanel()"
+    ></div>
+</div>
+
+<!-- Translation Modal (Accessible) -->
+<div id="translation-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50" data-dialog>
+    <div class="bg-background rounded-lg max-w-md w-full mx-4 p-6" role="document">
+        <h3 class="text-lg font-semibold mb-4" id="translation-modal-title">Opções de Tradução</h3>
+        <div class="space-y-4">
+            <button 
+                class="btn btn-outline w-full justify-start"
+                onclick="translateChapter()"
+            >
+                <i data-lucide="file-text" class="h-4 w-4 mr-2"></i>
+                Traduzir apenas este capítulo
+            </button>
+            <button 
+                class="btn btn-outline w-full justify-start"
+                onclick="translateBook()"
+            >
+                <i data-lucide="book" class="h-4 w-4 mr-2"></i>
+                Traduzir livro completo
+            </button>
+            <div>
+                <label class="label mb-2" for="translation-target-language">Idioma de destino:</label>
+                <select class="input w-full" id="translation-target-language">
+                    <option value="en">🇺🇸 Inglês</option>
+                    <option value="es">🇪🇸 Espanhol</option>
+                    <option value="fr">🇫🇷 Francês</option>
+                    <option value="de">🇩🇪 Alemão</option>
+                    <option value="it">🇮🇹 Italiano</option>
+                </select>
+            </div>
+        </div>
+        <div class="flex justify-end gap-2 mt-6">
+            <button class="btn btn-outline" data-dialog-close="translation-modal">
+                Fechar
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// Reader state
+const readerState = {
+    bookId: '{{ book.id }}',
+    currentChapter: {{ current_chapter }},
+    totalChapters: {{ book.chapters|length }},
+    chapterProgress: 0,
+    readerTheme: 'light'
+};
+
+// Navigation functions
+function navigateToChapter(chapterIndex) {
+    const index = parseInt(chapterIndex);
+    window.location.href = `{% url 'reader' book.id %}?chapter=${index}`;
+}
+
+function previousChapter() {
+    if (readerState.currentChapter > 0) {
+        navigateToChapter(readerState.currentChapter - 1);
+    }
+}
+
+function nextChapter() {
+    if (readerState.currentChapter < readerState.totalChapters - 1) {
+        navigateToChapter(readerState.currentChapter + 1);
+    }
+}
+
+// Settings panel
+function toggleSettingsPanel() {
+    const panel = document.getElementById('settings-panel');
+    const backdrop = document.getElementById('settings-backdrop');
+    
+    if (panel.classList.contains('translate-x-full')) {
+        panel.classList.remove('translate-x-full');
+        backdrop.classList.remove('hidden');
+    } else {
+        panel.classList.add('translate-x-full');
+        backdrop.classList.add('hidden');
+    }
+}
+
+// Reader theme
+function toggleReaderTheme() {
+    const wrapper = document.getElementById('reader-wrapper');
+    const btn = document.getElementById('reader-theme-btn');
+    const icon = btn.querySelector('i');
+    
+    const themes = ['light', 'dark', 'sepia'];
+    const currentTheme = wrapper.dataset.theme;
+    const currentIndex = themes.indexOf(currentTheme);
+    const nextTheme = themes[(currentIndex + 1) % themes.length];
+    
+    wrapper.dataset.theme = nextTheme;
+    wrapper.className = `reader-content-wrapper transition-colors duration-200 ${getThemeClasses(nextTheme)}`;
+    
+    // Update icon
+    const icons = { light: 'sun', dark: 'moon', sepia: 'coffee' };
+    icon.setAttribute('data-lucide', icons[nextTheme]);
+    lucide.createIcons();
+    
+    readerState.readerTheme = nextTheme;
+    
+    // Save preference
+    if (window.readerPreferences) {
+        window.readerPreferences.updatePreference('theme', nextTheme);
+    }
+}
+
+function getThemeClasses(theme) {
+    switch (theme) {
+        case 'dark':
+            return 'bg-gray-900 text-gray-100';
+        case 'sepia':
+            return 'bg-amber-50 text-amber-900';
+        default:
+            return 'bg-white text-gray-900';
+    }
+}
+
+// Translation functions
+function showTranslationOptions() { DialogA11y.openDialog('translation-modal'); }
+function closeTranslationModal() { DialogA11y.closeDialog('translation-modal'); }
+
+async function translateChapter() {
+    const language = document.getElementById('translation-target-language').value;
+    
+    loading.show('Traduzindo capítulo...');
+    
+    try {
+        const response = await Utils.fetchWithCSRF('/api/translate-chapter/', {
+            method: 'POST',
+            body: JSON.stringify({
+                book_id: readerState.bookId,
+                chapter_index: readerState.currentChapter,
+                target_language: language
+            })
+        });
+        
+        if (response.ok) {
+            toast.success('Capítulo traduzido com sucesso!');
+            closeTranslationModal();
+            // Optionally reload to show translated content
+            setTimeout(() => window.location.reload(), 1000);
+        } else {
+            const errorData = await response.json();
+            toast.error(errorData.message || 'Erro na tradução');
+        }
+    } catch (error) {
+        console.error('Translation error:', error);
+        toast.error('Erro na tradução. Tente novamente.');
+    } finally {
+        loading.hide();
+    }
+}
+
+async function translateBook() {
+    const language = document.getElementById('translation-target-language').value;
+    
+    loading.show('Traduzindo livro completo...');
+    
+    try {
+        const response = await Utils.fetchWithCSRF('/api/translate-book/', {
+            method: 'POST',
+            body: JSON.stringify({
+                book_id: readerState.bookId,
+                target_language: language
+            })
+        });
+        
+        if (response.ok) {
+            toast.success('Tradução do livro iniciada! Você será notificado quando estiver pronta.');
+            closeTranslationModal();
+        } else {
+            const errorData = await response.json();
+            toast.error(errorData.message || 'Erro na tradução');
+        }
+    } catch (error) {
+        console.error('Translation error:', error);
+        toast.error('Erro na tradução. Tente novamente.');
+    } finally {
+        loading.hide();
+    }
+}
+
+// Reading progress tracking
+function updateReadingProgress() {
+    const contentArea = document.getElementById('reader-content-area');
+    const scrollTop = contentArea.scrollTop;
+    const scrollHeight = contentArea.scrollHeight - contentArea.clientHeight;
+    
+    if (scrollHeight > 0) {
+        const progress = Math.min(100, Math.max(0, (scrollTop / scrollHeight) * 100));
+        
+        // Update progress bar
+        const progressBar = document.getElementById('reading-progress');
+        const progressText = document.getElementById('progress-text');
+        
+        if (progressBar) {
+            progressBar.style.width = progress + '%';
+        }
+        if (progressText) {
+            progressText.textContent = Math.round(progress) + '%';
+        }
+        
+        readerState.chapterProgress = progress;
+        
+        // Save progress to server periodically
+        if (progress > 0 && progress % 10 === 0) {
+            saveReadingProgress(progress);
+        }
+    }
+}
+
+async function saveReadingProgress(progress) {
+    try {
+        await Utils.fetchWithCSRF('/api/save-progress/', {
+            method: 'POST',
+            body: JSON.stringify({
+                book_id: readerState.bookId,
+                chapter_index: readerState.currentChapter,
+                progress: progress
+            })
+        });
+    } catch (error) {
+        console.error('Progress save error:', error);
+    }
+}
+
+function resetReaderSettings() {
+    if (window.readerPreferences) {
+        window.readerPreferences.resetToDefaults();
+        toast.success('Configurações restauradas!');
+    }
+}
+
+// Keyboard shortcuts
+function handleKeydown(event) {
+    if (event.target.tagName === 'INPUT' || event.target.tagName === 'SELECT') {
+        return;
+    }
+    
+    switch (event.key) {
+        case 'ArrowLeft':
+            event.preventDefault();
+            previousChapter();
+            break;
+        case 'ArrowRight':
+            event.preventDefault();
+            nextChapter();
+            break;
+        case 'Escape':
+            // Settings panel close (not a11y dialog yet)
+            if (!document.getElementById('settings-panel').classList.contains('translate-x-full')) {
+                toggleSettingsPanel();
+            }
+            // Translation modal ESC handled by DialogA11y global listener
+            break;
+        case 's':
+            if (event.ctrlKey || event.metaKey) {
+                event.preventDefault();
+                toggleSettingsPanel();
+            }
+            break;
+    }
+}
+
+// Initialize reader
+document.addEventListener('DOMContentLoaded', function() {
+    const contentArea = document.getElementById('reader-content-area');
+    
+    // Setup scroll tracking
+    if (contentArea) {
+        contentArea.addEventListener('scroll', Utils.throttle(updateReadingProgress, 100));
+    }
+    
+    // Setup keyboard shortcuts
+    document.addEventListener('keydown', handleKeydown);
+    
+    // Initialize reading progress
+    updateReadingProgress();
+    
+    // Auto-save progress periodically
+    setInterval(() => {
+        if (readerState.chapterProgress > 0) {
+            saveReadingProgress(readerState.chapterProgress);
+        }
+    }, 30000); // Save every 30 seconds
+});
+
+// Backdrop click close for translation modal using DialogA11y
+document.addEventListener('click', (e) => {
+    if (e.target.matches('#translation-modal')) {
+        DialogA11y.closeDialog('translation-modal');
+    }
+});
+</script>
+{% endblock %}
