@@ -5,6 +5,8 @@ Script para re-extrair capas de EPUBs existentes
 import os
 import sys
 import django
+from django.conf import settings
+from pathlib import Path
 
 # Configurar Django
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -47,8 +49,7 @@ def re_extract_covers():
             book = epub.read_epub(extracted.uploaded_file.file.path)
             
             # Simular as funções internas da view
-            from django.conf import settings
-            from pathlib import Path
+
             
             def _generate_cover_for_ao3(title, author, extracted):
                 """

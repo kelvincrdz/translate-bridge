@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from .models import UploadedFile, ExtractedEpub, TranslatedEpub, AuditLog, ReadingProgress
+from .models import UploadedFile, ExtractedEpub, TranslatedEpub, AuditLog, ReadingProgress, ReaderPreference
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -48,3 +48,11 @@ class AuditLogSerializer(serializers.ModelSerializer):
         model = AuditLog
         fields = ('id', 'action', 'action_display', 'description', 'resource_type', 'resource_id', 'timestamp', 'ip_address', 'metadata')
         read_only_fields = ('id', 'timestamp', 'ip_address')
+
+class ReaderPreferenceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ReaderPreference
+        fields = (
+            'version', 'font_size', 'theme', 'font_family', 'line_height', 'page_width', 'text_align', 'updated_at', 'created_at'
+        )
+        read_only_fields = ('updated_at', 'created_at', 'version')

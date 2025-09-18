@@ -1,8 +1,3 @@
-// swagger-ui-init.js
-// https://github.com/axnsan12/drf-yasg
-// Copyright 2017 - 2021, Cristian V. <cristi@cvjd.me>
-// This file is licensed under the BSD 3-Clause License.
-// License text available at https://opensource.org/licenses/BSD-3-Clause
 
 "use strict";
 var currentPath = window.location.protocol + "//" + window.location.host + window.location.pathname;
@@ -10,19 +5,17 @@ var defaultSpecUrl = currentPath + '?format=openapi';
 
 function slugify(text) {
     return text.toString().toLowerCase()
-        .replace(/\s+/g, '-')           // Replace spaces with -
-        .replace(/[^\w\-]+/g, '')       // Remove all non-word chars
-        .replace(/--+/g, '-')           // Replace multiple - with single -
-        .replace(/^-+/, '')             // Trim - from start of text
-        .replace(/-+$/, '');            // Trim - from end of text
+        .replace(/\s+/g, '-') 
+        .replace(/[^\w\-]+/g, '') 
+        .replace(/--+/g, '-')
+        .replace(/^-+/, '')
+        .replace(/-+$/, '');
 }
 
 var KEY_AUTH = slugify(window.location.pathname) + "-drf-yasg-auth";
 
-// load the saved authorization state from localStorage; ImmutableJS is used for consistency with swagger-ui state
-var savedAuth = Immutable.fromJS({});
 
-// global SwaggerUI config object; can be changed directly or by hooking initSwaggerUiConfig
+var savedAuth = Immutable.fromJS({});
 var swaggerUiConfig = {
     url: defaultSpecUrl,
     dom_id: '#swagger-ui',
@@ -136,8 +129,7 @@ function initSwaggerUiConfig(swaggerSettings, oauth2Settings) {
 
     var specURL = swaggerUiConfig.url;
     if (fetchSchemaWithQuery) {
-        // only add query params from document for the first spec request
-        // this ensures we otherwise honor the spec selector box which might be manually modified
+
         var query = new URLSearchParams(window.location.search || '').entries();
         for (var it = query.next(); !it.done; it = query.next()) {
             specURL = setQueryParam(specURL, it.value[0], it.value[1]);
@@ -187,18 +179,16 @@ function initSwaggerUiConfig(swaggerSettings, oauth2Settings) {
                     request.url = newUrl;
 
                     if (window.ui) {
-                        // this visually updates the spec url before the request is done, i.e. while loading
+                        
                         window.ui.specActions.updateUrl(request.url);
                     } else {
-                        // setTimeout is needed here because the request interceptor can be called *during*
-                        // window.ui initialization (by the SwaggerUIBundle constructor)
+                        
                         setTimeout(function () {
                             window.ui.specActions.updateUrl(request.url);
                         });
                     }
 
-                    // need to manually remember requests for spec urls because
-                    // responseInterceptor has no reference to the request...
+
                     var absUrl = new URL(request.url, currentPath);
                     specRequestsInFlight[absUrl.href] = request.url;
                 }
@@ -217,8 +207,7 @@ function initSwaggerUiConfig(swaggerSettings, oauth2Settings) {
                 var setToUrl = specRequestsInFlight[absUrl.href];
                 delete specRequestsInFlight[absUrl.href];
                 if (response.ok) {
-                    // need setTimeout here because swagger-ui insists to call updateUrl
-                    // with the initial request url after the response...
+
                     setTimeout(function () {
                         var currentUrl = new URL(window.ui.specSelectors.url(), currentPath);
                         if (currentUrl.href !== absUrl.href) {
@@ -342,14 +331,7 @@ function deauthUrl(authorization, requestUrl) {
     return requestUrl;
 }
 
-/**
- * Hook the authorize and logout actions of SwaggerUI.
- * The hooks are used to persist authorization data and trigger schema refetch.
- * @param sui SwaggerUI or SwaggerUIBundle instance
- * @param {boolean} persistAuth true to save auth to local storage
- * @param {boolean} refetchWithAuth true to trigger schema fetch on login
- * @param {boolean} refetchOnLogout true to trigger schema fetch on logout
- */
+
 function hookAuthActions(sui, persistAuth, refetchWithAuth, refetchOnLogout) {
     if (!persistAuth && !refetchWithAuth) {
         // nothing to do

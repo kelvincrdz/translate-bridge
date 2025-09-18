@@ -1,6 +1,6 @@
 from django.urls import path
 from . import views
-from .views import EpubReaderView, ReadingProgressView, AO3ImportView, ReaderImageView
+from .views import EpubReaderView, ReadingProgressView, AO3ImportView, ReaderImageView, BooksListView, ReaderPreferenceView, DiagnosticsView
 
 urlpatterns = [
     path('register/', views.RegisterView.as_view(), name='register'),
@@ -23,5 +23,8 @@ urlpatterns = [
     path('reader/<int:file_id>/', EpubReaderView.as_view(), name='epub-reader'),
     path('reader/<int:file_id>/images/<str:image_name>', ReaderImageView.as_view(), name='reader-image'),
     path('reading-progress/<int:extracted_epub_id>/', ReadingProgressView.as_view(), name='reading-progress'),
+    path('books/', BooksListView.as_view(), name='books-list'),
     path('import-ao3/', AO3ImportView.as_view(), name='import-ao3'),
+    path('reader-preferences/', ReaderPreferenceView.as_view(), name='reader-preferences'),
+    path('diagnostics/', DiagnosticsView.as_view(), name='diagnostics'),
 ]

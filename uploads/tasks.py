@@ -11,6 +11,7 @@ from django.conf import settings
 import time
 from typing import Iterable
 import bleach
+import mimetypes
 
 
 def extract_epub_sync(extracted_epub_id):
@@ -21,7 +22,6 @@ def extract_epub_sync(extracted_epub_id):
     
     book = epub.read_epub(extracted.uploaded_file.file.path)
     
-    # Extract metadata
     metadata = {}
     for item in book.get_metadata('DC', 'title'):
         metadata['title'] = item[0]
@@ -29,12 +29,10 @@ def extract_epub_sync(extracted_epub_id):
         metadata['author'] = item[0]
     extracted.title = metadata.get('title', '')
     extracted.metadata = metadata
-    
-    # Extract chapters
+
     chapters = []
     document_items = [item for item in book.get_items() if item.get_type() == ebooklib.ITEM_DOCUMENT]
-    
-    # Sanitização helper (duplicada mínima aqui para evitar dependência cíclica)
+
     import re
     def sanitize_html(raw_html: str) -> str:
         if not raw_html:
@@ -63,45 +61,43 @@ def extract_epub_sync(extracted_epub_id):
     
     extracted.chapters = chapters
     
-    # Extract images
     images = []
+    cover_image_path = None
     image_items = [item for item in book.get_items() if item.get_type() == ebooklib.ITEM_IMAGE]
-    
+
     for item in image_items:
         try:
-            # Get the original name and content
             original_name = item.get_name()
             content = item.get_content()
-            
-            # Create safe filename
+
             safe_name = original_name.replace('/', '_').replace('\\', '_').replace('..', '_')
             safe_name = os.path.basename(safe_name)
-            
-            # If no extension, try to detect from content
+
             if '.' not in safe_name:
-                if content.startswith(b'\xff\xd8\xff'):
-                    safe_name += '.jpg'
-                elif content.startswith(b'\x89PNG'):
-                    safe_name += '.png'
-                elif content.startswith(b'GIF'):
-                    safe_name += '.gif'
+                mime_type, _ = mimetypes.guess_type(original_name)
+                if not mime_type:
+                    if content.startswith(b'\xff\xd8\xff'):
+                        safe_name += '.jpg'
+                    elif content.startswith(b'\x89PNG'):
+                        safe_name += '.png'
+                    elif content.startswith(b'GIF'):
+                        safe_name += '.gif'
+                    else:
+                        safe_name += '.bin'
                 else:
-                    safe_name += '.bin'
-            
-            # Ensure filename is not empty
+                    ext = mimetypes.guess_extension(mime_type)
+                    if ext:
+                        safe_name += ext
+
             if not safe_name or safe_name == '.':
                 hash_name = hashlib.md5(content).hexdigest()
                 ext = Path(original_name).suffix if Path(original_name).suffix else '.bin'
                 safe_name = f"{hash_name}{ext}"
-            
-            # Create directory structure
+
             image_dir = os.path.join(settings.MEDIA_ROOT, 'epub_images', str(extracted.uploaded_file.pk))
             os.makedirs(image_dir, exist_ok=True)
-            
-            # Full path for the image
             image_path = os.path.join(image_dir, safe_name)
-            
-            # Ensure we don't overwrite existing files
+
             counter = 1
             base_name = safe_name
             while os.path.exists(image_path):
@@ -109,20 +105,36 @@ def extract_epub_sync(extracted_epub_id):
                 safe_name = f"{name_parts[0]}_{counter}{name_parts[1]}"
                 image_path = os.path.join(image_dir, safe_name)
                 counter += 1
-            
-            # Save the image
+
             with open(image_path, 'wb') as f:
                 f.write(content)
-            
-            # Store the web-accessible path
+
             web_path = f'/media/epub_images/{extracted.uploaded_file.pk}/{safe_name}'
             images.append(web_path)
-            
+
+            if cover_image_path is None and 'cover' in original_name.lower():
+                cover_image_path = web_path
+
         except Exception as e:
             print(f"Error extracting image {item.get_name()}: {str(e)}")
             continue
-    
+
+    if cover_image_path is None:
+        title = extracted.title or 'Untitled'
+        author = ''
+        if extracted.metadata and isinstance(extracted.metadata, dict):
+            author = extracted.metadata.get('author') or ''
+        try:
+            from .cover_utils import generate_epub_cover_file
+            cover_image_path = generate_epub_cover_file(title, author, extracted.uploaded_file.pk)
+            images.insert(0, cover_image_path)  # garantir que capa apareça primeiro
+        except ImportError:
+            print('Pillow não instalado; não foi possível gerar capa.')
+        except Exception as e:
+            print(f'Erro gerando capa: {e}')
+
     extracted.images = images
+    extracted.cover_image = cover_image_path
     extracted.save()
     
     return extracted
@@ -132,7 +144,14 @@ def translate_epub_sync(extracted_epub_id, source_lang, target_lang, chapter_ind
     """
     Synchronous EPUB translation
     """
+    import logging
+    log = logging.getLogger(__name__)
+    
+    log.info(f"[TranslateSync] Iniciando: extracted_epub_id={extracted_epub_id}, source={source_lang}, target={target_lang}, chapter={chapter_index}")
+    
     extracted_epub = ExtractedEpub.objects.get(id=extracted_epub_id)
+    log.info(f"[TranslateSync] ExtractedEpub carregado: title='{extracted_epub.title}', chapters_count={len(extracted_epub.chapters or [])}")
+    
     translator = GoogleTranslator(source=source_lang, target=target_lang)
     start_time = time.time()
     text_nodes_count = 0
@@ -142,19 +161,21 @@ def translate_epub_sync(extracted_epub_id, source_lang, target_lang, chapter_ind
     if extracted_epub.title:
         try:
             translated_title = translate_with_retry(translator, extracted_epub.title)
+            log.info(f"[TranslateSync] Título traduzido: '{extracted_epub.title}' -> '{translated_title}'")
         except Exception as e:
-            print(f"Error translating title: {str(e)}")
+            log.error(f"[TranslateSync] Erro ao traduzir título: {str(e)}")
             translated_title = extracted_epub.title
 
     # Translate metadata
     translated_metadata = {}
     if extracted_epub.metadata and isinstance(extracted_epub.metadata, dict):
+        log.info(f"[TranslateSync] Traduzindo metadata com {len(extracted_epub.metadata)} campos")
         for key, value in extracted_epub.metadata.items():
             if isinstance(value, str) and value.strip():
                 try:
                     translated_metadata[key] = translate_with_retry(translator, value)
                 except Exception as e:
-                    print(f"Error translating metadata {key}: {str(e)}")
+                    log.error(f"[TranslateSync] Erro ao traduzir metadata {key}: {str(e)}")
                     translated_metadata[key] = value
             else:
                 translated_metadata[key] = value
@@ -162,14 +183,20 @@ def translate_epub_sync(extracted_epub_id, source_lang, target_lang, chapter_ind
     # Translate chapters
     translated_chapters = []
     if chapter_index is not None and extracted_epub.chapters and isinstance(extracted_epub.chapters, list):
+        log.info(f"[TranslateSync] Traduzindo capítulo específico: {chapter_index}")
         if 0 <= chapter_index < len(extracted_epub.chapters):
             chapters_to_translate = [extracted_epub.chapters[chapter_index]]
         else:
             raise ValueError(f"Chapter index {chapter_index} out of range")
     else:
+        log.info(f"[TranslateSync] Traduzindo todos os capítulos")
         chapters_to_translate = extracted_epub.chapters or []
 
+    log.info(f"[TranslateSync] Capítulos para traduzir: {len(chapters_to_translate)}")
+
     for i, chapter in enumerate(chapters_to_translate):
+        log.info(f"[TranslateSync] Traduzindo capítulo {i+1}/{len(chapters_to_translate)}: '{chapter.get('title', 'Sem título')}'")
+        
         translated_chapter = {
             'title': '',
             'content': chapter['content']
@@ -179,22 +206,29 @@ def translate_epub_sync(extracted_epub_id, source_lang, target_lang, chapter_ind
         try:
             if chapter.get('title'):
                 translated_chapter['title'] = translate_with_retry(translator, chapter['title'])
+                log.info(f"[TranslateSync] Título do capítulo traduzido: '{chapter['title']}' -> '{translated_chapter['title']}'")
             else:
                 translated_chapter['title'] = f'Capítulo {i+1}'
         except Exception as e:
-            print(f"Error translating chapter title {i+1}: {str(e)}")
+            log.error(f"[TranslateSync] Erro ao traduzir título do capítulo {i+1}: {str(e)}")
             translated_chapter['title'] = chapter.get('title', f'Capítulo {i+1}')
         
         # Translate chapter content
         try:
+            content_length = len(chapter['content'])
+            log.info(f"[TranslateSync] Traduzindo conteúdo do capítulo {i+1} (tamanho: {content_length} chars)")
             translated_html, nodes = translate_html(chapter['content'], translator)
             text_nodes_count += nodes
             translated_chapter['content'] = translated_html
+            log.info(f"[TranslateSync] Capítulo {i+1} traduzido com sucesso ({nodes} nós de texto)")
         except Exception as e:
-            print(f"Error translating chapter content {i+1}: {str(e)}")
+            log.error(f"[TranslateSync] Erro ao traduzir conteúdo do capítulo {i+1}: {str(e)}")
+            import traceback
+            log.error(f"[TranslateSync] Traceback: {traceback.format_exc()}")
         
         translated_chapters.append(translated_chapter)
 
+    log.info(f"[TranslateSync] Salvando tradução no banco de dados...")
     # Save translation idempotently
     translation, _created = TranslatedEpub.objects.update_or_create(
         extracted_epub=extracted_epub,
@@ -207,10 +241,15 @@ def translate_epub_sync(extracted_epub_id, source_lang, target_lang, chapter_ind
             'translated_chapters': translated_chapters,
         }
     )
+    
+    action_description = "created" if _created else "updated"
+    log.info(f"[TranslateSync] Tradução {action_description}: translation_id={translation.pk}")
+    log.info(f"[TranslateSync] Dados salvos - title: '{translated_title}', chapters: {len(translated_chapters)}")
 
     # Audit log
     if user_id:
         duration_ms = int((time.time() - start_time) * 1000)
+        log.info(f"[TranslateSync] Criando log de auditoria: duration={duration_ms}ms, nodes={text_nodes_count}")
         AuditLog.objects.create(
             user_id=user_id,
             action='translate',
@@ -227,6 +266,7 @@ def translate_epub_sync(extracted_epub_id, source_lang, target_lang, chapter_ind
             }
         )
 
+    log.info(f"[TranslateSync] Tradução concluída com sucesso! Retornando translation object")
     return translation
 
 
@@ -237,7 +277,6 @@ def translate_html(html_content, translator):
     try:
         soup = BeautifulSoup(html_content, 'html.parser')
 
-        # Allowed tags/attrs for final sanitization
         allowed_tags = [
             'p','div','span','strong','em','b','i','u','a','ul','ol','li','br','hr','h1','h2','h3','h4','h5','h6',
             'img','blockquote','code','pre','table','thead','tbody','tr','td','th'
@@ -253,12 +292,11 @@ def translate_html(html_content, translator):
             if hasattr(element, 'parent') and element.strip() and element.parent.name not in ['script', 'style']:
                 original_text = element.strip()
                 if original_text:
-                    # Split long text into chunks respecting word boundaries
                     chunks = list(chunk_text(original_text, 4000))
                     translated_chunks = []
                     for ch in chunks:
                         translated_chunk = translate_with_retry(translator, ch)
-                        translated_chunks.append(translated_chunk or ch)  # Fallback to original if translation fails
+                        translated_chunks.append(translated_chunk or ch)
                     translated = ''.join(translated_chunks)
                     if translated and translated != original_text:
                         element.replace_with(translated)
@@ -281,7 +319,6 @@ def translate_with_retry(translator, text: str, retries: int = 2, backoff: float
             last_err = e
             time.sleep(backoff * (2 ** attempt))
     print(f"Translation failed after retries: {last_err}")
-    # Fallback to original text
     return text
 
 
@@ -305,7 +342,6 @@ def chunk_text(text: str, max_len: int) -> Iterable[str]:
         yield ' '.join(buf)
 
 
-# Celery tasks wrappers
 @shared_task(name='uploads.translate_epub_task')
 def translate_epub_task(extracted_epub_id, source_lang, target_lang, chapter_index=None, user_id=None):
     """Async task wrapper for translate_epub_sync returning translation ID"""

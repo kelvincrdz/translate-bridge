@@ -1,12 +1,11 @@
 from django.db import models
 
-# Create your models here.
-
 class UploadedFile(models.Model):
     user = models.ForeignKey('auth.User', on_delete=models.CASCADE)
     file = models.FileField(upload_to='epubs/')
     uploaded_at = models.DateTimeField(auto_now_add=True)
     title = models.CharField(max_length=255, blank=True)
+    debug_id = models.CharField(max_length=100, blank=True, null=True, help_text="Debug identifier for tracking imports")
 
     def __str__(self):
         return self.title or self.file.name
@@ -15,9 +14,9 @@ class ExtractedEpub(models.Model):
     uploaded_file = models.OneToOneField(UploadedFile, on_delete=models.CASCADE)
     title = models.CharField(max_length=255, blank=True)
     metadata = models.JSONField(blank=True, null=True)
-    chapters = models.JSONField(blank=True, null=True)  # list of {'title': str, 'content': str}
-    images = models.JSONField(blank=True, null=True)  # list of image paths
-    cover_image = models.CharField(max_length=500, blank=True, null=True)  # path to cover image
+    chapters = models.JSONField(blank=True, null=True)
+    images = models.JSONField(blank=True, null=True)
+    cover_image = models.CharField(max_length=500, blank=True, null=True)
     extracted_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -29,8 +28,8 @@ class TranslatedEpub(models.Model):
     target_lang = models.CharField(max_length=10, default='pt')
     translated_title = models.CharField(max_length=255, blank=True)
     translated_metadata = models.JSONField(blank=True, null=True)
-    translated_chapters = models.JSONField(blank=True, null=True)  # list of {'title': str, 'content': str}
-    chapter_index = models.IntegerField(null=True, blank=True)  # None for full translation, index for single chapter
+    translated_chapters = models.JSONField(blank=True, null=True) 
+    chapter_index = models.IntegerField(null=True, blank=True)
     translated_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -45,8 +44,8 @@ class ReadingProgress(models.Model):
     user = models.ForeignKey('auth.User', on_delete=models.CASCADE)
     extracted_epub = models.ForeignKey(ExtractedEpub, on_delete=models.CASCADE)
     current_chapter = models.IntegerField(default=0)
-    current_position = models.IntegerField(default=0)  # Character position within chapter
-    progress_percentage = models.FloatField(default=0.0)  # Overall reading progress (0-100)
+    current_position = models.IntegerField(default=0)
+    progress_percentage = models.FloatField(default=0.0)
     last_read_at = models.DateTimeField(auto_now=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -70,6 +69,7 @@ class AuditLog(models.Model):
         ('login', 'User Login'),
         ('register', 'User Registration'),
         ('read', 'Reading Progress'),
+        ('ao3_import', 'AO3 Import'),
     ]
 
     user = models.ForeignKey('auth.User', on_delete=models.CASCADE)
@@ -91,3 +91,24 @@ class AuditLog(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.action} - {self.timestamp}"
+
+
+class ReaderPreference(models.Model):
+    user = models.OneToOneField('auth.User', on_delete=models.CASCADE, related_name='reader_preference')
+    version = models.IntegerField(default=2)
+    font_size = models.IntegerField(default=16)
+    theme = models.CharField(max_length=10, default='light')
+    font_family = models.CharField(max_length=30, default='serif')
+    line_height = models.FloatField(default=1.7)
+    page_width = models.CharField(max_length=10, default='medium')
+    text_align = models.CharField(max_length=10, default='left')
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['updated_at']),
+        ]
+
+    def __str__(self):
+        return f"ReaderPreference({self.user.username}) v{self.version}"
